@@ -4,28 +4,12 @@ import { fileURLToPath } from "url"
 import { spawn } from "child_process"
 import chessmen from "./js/chess-info.js"
 
-// go to the chess.config.json
-const configPath = path.join(process.cwd(), "chess.config.json")
-
-// read the chess.config.json
-// const config = JSON.parse(fs.readFileSync(configPath, "utf-8"))
-// export let board = config.matrix
-
-// function getBoard() {
-//     return config.matrix
-// }
-
-let hasBeenCalled = false
 
 class MatrixOperation {
-    constructor(matrix) {
-        this.#checkDimention(matrix)
-        this.#checkMatrix(matrix)
-        this.#updateDimention(matrix)
-    }
+    boardData = undefined
 
     // check matrix is valid 2D array
-    #checkDimention(matrix) {
+    _checkDimention(matrix) {
         // 1. Must be an array
         if (!Array.isArray(matrix)) {
             throw new Error("Matrix must be an array")
@@ -50,16 +34,13 @@ class MatrixOperation {
             }
         }
 
-        // 4. Check number of columns m
-        const m = matrix[0].length
-
-        if (m <= 1) {
+        if (matrix[0].length <= 1) {
             throw new Error("Matrix must have more than 1 column (m > 1)")
         }
 
-        // 5. Ensure all rows have equal columns
+        // 4. Ensure all rows have equal columns
         for (const row of matrix) {
-            if (row.length !== m) {
+            if (row.length !== matrix[0].length) {
                 throw new Error("All rows must have the same number of columns")
             }
         }
@@ -68,7 +49,7 @@ class MatrixOperation {
     }
 
     // check numbers inside the matrix
-    #checkMatrix(matrix) {
+    _checkMatrix(matrix) {
         const allowedNumbers = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
 
         function checkArray(arr) {
@@ -92,152 +73,172 @@ class MatrixOperation {
         return checkArray(matrix)
     }
 
-    // update the config.json for data
-    #updateDimention(matrix) {
+    // initiate the chess board data
+    _initiateBoardData(matrix) {
         const [bot, player] = chessmen(matrix)
-        const data = {
-            "row":matrix.length,
-            "col":matrix[0].length,
-            "matrix":matrix,
-            "bot":bot,
-            "player":player
+        this.boardData = {
+            "row": matrix.length,
+            "col": matrix[0].length,
+            "matrix": matrix,
+            "bot": bot,
+            "player": player
+        }
+    }
+}
+
+export default class Board extends MatrixOperation {
+    constructor(matrix, playerColor) {
+        super()
+
+        this._checkDimention(matrix)
+        this._checkMatrix(matrix)
+        this._initiateBoardData(matrix)
+
+        startPrediction()
+
+        if (playerColor === "b" || playerColor === "B") {
+
+        } else if (playerColor === "w" || playerColor === "W") {
+
+        } else {
+            throw new Error(`${playerColor} is invalid\nValid playerSide:\n\tfor black -> \'B\' or \'b\'\n\tfor white -> \'W\' or \'w\'`)
+        }
+    }
+
+    showMoves(row, col) {
+        if (row < 0 || row >= this.boardData.row || col < 0 || col >= this.boardData.col) {
+            throw new Error("Invalid position")
         }
 
-        // write the .env file
-        fs.writeFileSync(configPath, JSON.stringify(data))
-    }
-}
-
-export function StartBoard(matrix, playerColor) {
-    if (hasBeenCalled)
-        throw new Error("The board has been initiated before, StartBoard() should not be called more than 1 time")
-
-    hasBeenCalled = true
-
-    new MatrixOperation(structuredClone(matrix))
-
-    startPrediction()
-
-    if (playerColor === "b" || playerColor === "B") {
-
-    } else if (playerColor === "w" || playerColor === "W") {
-
-    } else {
-        throw new Error(`${playerColor} is invalid\nValid playerSide:\n\tfor black -> \'B\' or \'b\'\n\tfor white -> \'W\' or \'w\'`)
-    }
-}
-
-export function showMoves(row, col) {
-    if (row < 0 || row >= config.row || col < 0 || col >= config.col) {
-        throw new Error("Check the postion i.e. row and column - it is not given in the given matrix")
-    } else {
-        if (config.matrix[row][col] === 0) {
+        if (this.boardData.matrix[row][col] === 0) {
             return null
-        } else {
-            let n = (config.row >= config.col) ? config.row:config.col
-            return new Promise((resolve, reject) => {
-                // makes the python chessman.py file path
-                const py = spawn("python3", [path.join(path.dirname(fileURLToPath(import.meta.url)), "python", "show-move.py"), row.toString(), col.toString()])
+        }
 
-                let dataString = ""
+        let n = Math.max(this.boardData.row, this.boardData.col)
 
-                // to handle print result
-                py.stdout.on("data", (data) => {
-                    dataString += data.toString()
-                })
+        return new Promise((resolve, reject) => {
+            const py = spawn("python3", [
+                path.join(
+                    path.dirname(fileURLToPath(import.meta.url)),
+                    "python",
+                    "show-move.py"
+                )
+            ])
 
-                // handle when close
-                py.on("close", () => {
-                    resolve(JSON.parse(dataString.trim()).map(item => [Math.floor(item[1]/(n*n))%n, Math.floor(item[1]/(n*n*n))]))
-                })
+            let dataString = ""
+            let errorString = ""
+
+            py.stdin.write(JSON.stringify({
+                row,
+                col,
+                boardData: this.boardData
+            }))
+
+            py.stdin.end()
+
+            py.stdout.on("data", (data) => {
+                dataString += data.toString()
             })
-        }
+
+            py.stderr.on("data", (err) => {
+                errorString += err.toString()
+            })
+
+            py.on("close", (code) => {
+                if (code !== 0) {
+                    return reject(errorString || "Python process failed")
+                }
+
+                try {
+                    const parsed = JSON.parse(dataString.trim())
+
+                    const result = parsed.map(item => [
+                        Math.floor(item[1] / (n * n)) % n,
+                        Math.floor(item[1] / (n * n * n))
+                    ])
+
+                    resolve(result)
+                } catch (err) {
+                    reject("Invalid JSON from Python")
+                }
+            })
+        })
     }
-}
 
-export async function changeMoves(old_row, old_col, new_row, new_col, changeChessman = -1) {
-    const list = await showMoves(old_row, old_col)
+    async playMove(old_row, old_col, new_row, new_col, changeChessman = -1) {
+        const list = await this.showMoves(old_row, old_col)
 
-    // throws error when the chessman is 0 or donot have any moves
-    if (list.length == 0) {
-        throw new Error(`row = ${old_row} and col = ${old_col}:\nThis chessman donot have any moves`)
-    }
-
-    // check the chessman have valid moves
-    if (list.some(([row, col]) => row === new_row && col === new_col)) {
-        let matrix = structuredClone(config.matrix)
-
-        // check change chessman validation
-        if (changeChessman === -1 && (matrix[old_row][old_col] === 1 || matrix[old_row][old_col] === 7) && (new_row == config.row-1 || new_row == 0)) {
-            throw new Error(`changeChessman is not given`)
+        // throws error when the chessman is 0 or donot have any moves
+        if (list.length == 0) {
+            return
         }
 
-        // change the bot placement
-        if (matrix[old_row][old_col] <= 6) {
-            let bot = structuredClone(config.bot)
-            let index = bot.findIndex(([[row, col], owner]) => row === old_row && col === old_col && owner === matrix[old_row][old_col])
+        // check the chessman have valid moves
+        if (list.some(([row, col]) => row === new_row && col === new_col)) {
+            let matrix = this.boardData.matrix
 
-            // check the change chessman validation
-            if (changeChessman > 5 || changeChessman < 2 && (matrix[old_row][old_col] === 1) && (new_row == config.row-1)) {
-                throw new Error(`changeChessman: ${changeChessman} is invalid for bot`)
+            // check change chessman validation
+            if (changeChessman === -1 && (matrix[old_row][old_col] === 1 || matrix[old_row][old_col] === 7) && (new_row === this.boardData.row - 1 || new_row === 0)) {
+                throw new Error(`changingChessman is not given`)
             }
 
-            // check the move will change or not if change then update the bot list in chess.config.json
-            if (matrix[old_row][old_col] === 1 && new_row === config.row - 1) {
-                bot[index] = [[new_row, new_col], changeChessman]
+            // change the bot placement
+            if (matrix[old_row][old_col] <= 6) {
+                let bot = this.boardData.bot
+                let index = bot.findIndex(([[row, col], owner]) => row === old_row && col === old_col && owner === matrix[old_row][old_col])
+
+                // check the change chessman validation
+                if ((changeChessman > 5 || changeChessman < 2) && (matrix[old_row][old_col] === 1) && (new_row == this.boardData.row - 1)) {
+                    throw new Error(`changeChessman: ${changeChessman} is invalid for bot`)
+                }
+
+                // check the move will change or not if change then update the bot list in chess.this.json
+                if (matrix[old_row][old_col] === 1 && new_row === this.boardData.row - 1) {
+                    bot[index] = [[new_row, new_col], changeChessman]
+                } else {
+                    bot[index] = [[new_row, new_col], matrix[old_row][old_col]]
+                }
+            } else if (matrix[old_row][old_col] >= 7) {
+                let player = this.boardData.player
+                let index = player.findIndex(([[row, col], owner]) => row === old_row && col === old_col && owner === matrix[old_row][old_col])
+
+                // check the change chessman validation
+                if ((changeChessman > 11 || changeChessman < 8) && (matrix[old_row][old_col] === 7) && (new_row == 0)) {
+                    throw new Error(`changeChessman: ${changeChessman} is invalid for player`)
+                }
+
+                // check the move will change or not if change then update the player list in chess.this.json
+                if (matrix[old_row][old_col] === 7 && new_row === 0) {
+                    player[index] = [[new_row, new_col], changeChessman]
+                } else {
+                    player[index] = [[new_row, new_col], matrix[old_row][old_col]]
+                }
+            }
+
+            // if any chessman kills the opponent's chessman then delete the killed chessman from the opponent's list in chess.this.json
+            if ((matrix[new_row][new_col] <= 6) && (matrix[new_row][new_col] !== 0)) {
+                let bot = this.boardData.bot
+                let index = bot.findIndex(([[row, col], owner]) => row === new_row && col === new_col && owner === matrix[new_row][new_col])
+                bot.splice(index, 1)
+            } else if ((matrix[new_row][new_col] >= 7) && (matrix[new_row][new_col] !== 0)) {
+                let player = this.boardData.player
+                let index = player.findIndex(([[row, col], owner]) => row === new_row && col === new_col && owner === matrix[new_row][new_col])
+                player.splice(index, 1)
+            }
+
+            if (matrix[old_row][old_col] === 1 && new_row === this.boardData.row - 1) {
+                matrix[new_row][new_col] = changeChessman
+                matrix[old_row][old_col] = 0
+            } else if (matrix[old_row][old_col] === 7 && new_row === 0) {
+                matrix[new_row][new_col] = changeChessman
+                matrix[old_row][old_col] = 0
             } else {
-                bot[index] = [[new_row, new_col], matrix[old_row][old_col]]
+                matrix[new_row][new_col] = matrix[old_row][old_col]
+                matrix[old_row][old_col] = 0
             }
-            config.bot = bot
-        } else if (matrix[old_row][old_col] >= 7) {
-            let player = structuredClone(config.player)
-            let index = player.findIndex(([[row, col], owner]) => row === old_row && col === old_col && owner === matrix[old_row][old_col])
-
-            // check the change chessman validation
-            if (changeChessman > 11 || changeChessman < 8 && (matrix[old_row][old_col] === 7) && (new_row == 0)) {
-                throw new Error(`changeChessman: ${changeChessman} is invalid for player`)
-            }
-
-            // check the move will change or not if change then update the player list in chess.config.json
-            if (matrix[old_row][old_col] === 7 && new_row === 0) {
-                player[index] = [[new_row, new_col], changeChessman]
-            } else {
-                player[index] = [[new_row, new_col], matrix[old_row][old_col]]
-            }
-            config.player = player
-        }
-
-        // if any chessman kills the opponent's chessman then delete the killed chessman from the opponent's list in chess.config.json
-        if ((matrix[new_row][new_col] <= 6) && (matrix[new_row][new_col] !== 0)) {
-            let bot = structuredClone(config.bot)
-            let index = bot.findIndex(([[row, col], owner]) => row === new_row && col === new_col && owner === matrix[new_row][new_col])
-            bot.splice(index, 1)
-            config.bot = bot
-        } else if ((matrix[new_row][new_col] >= 7) && (matrix[new_row][new_col] !== 0)) {
-            let player = structuredClone(config.player)
-            let index = player.findIndex(([[row, col], owner]) => row === new_row && col === new_col && owner === matrix[new_row][new_col])
-            player.splice(index, 1)
-            config.player = player
-        }
-
-        if (matrix[old_row][old_col] === 1 && new_row === config.row - 1) {
-            matrix[new_row][new_col] = changeChessman
-            matrix[old_row][old_col] = 0
-            config.matrix = matrix
-        } else if (matrix[old_row][old_col] === 7 && new_row === 0) {
-            matrix[new_row][new_col] = changeChessman
-            matrix[old_row][old_col] = 0
-            config.matrix = matrix
         } else {
-            matrix[new_row][new_col] = matrix[old_row][old_col]
-            matrix[old_row][old_col] = 0
-            config.matrix = matrix
+            throw new Error(`row = ${new_row}\tcol = ${new_col}:\nThis chessman is not valid placement for this chessman`)
         }
-
-        // rewrite the file
-        fs.writeFileSync(configPath, JSON.stringify(config))
-    } else {
-        throw new Error(`row = ${new_row}\tcol = ${new_col}:\nThis chessman is not valid placement for this chessman`)
     }
 }
 

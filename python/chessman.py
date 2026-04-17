@@ -1,15 +1,7 @@
-import json
 import multiprocessing as mp
-from pathlib import Path
 
-# go to the config.json
-config_path = Path(__file__).resolve().parents[1] / "chess.config.json"
-
-# read the row-length and column-length from config.json
-with open(config_path, "r", encoding="utf-8") as file:
-    data = json.load(file)
-    ROWLEN = data.get("row", 0)
-    COLLEN = data.get("col", 0)
+ROWLEN = 0
+COLLEN = 0
 
 def _oneInteger(old_row, old_col, new_row, new_col):
     '''
@@ -20,16 +12,15 @@ def _oneInteger(old_row, old_col, new_row, new_col):
     n = ROWLEN if ROWLEN >= COLLEN else COLLEN
     return old_row + old_col*(n) + new_row*(n**2) + new_col*(n**3)
 
-# top-level worker function
-def _worker(fn, args, q):
-    q.put(fn(*args))
-
 class PlayerChessman:
     # constructor
-    def __init__(self, matrix, pos, bot):
+    def __init__(self, matrix, pos, bot, rowlen, collen):
+        global ROWLEN, COLLEN
         self.__matrix = [row[:] for row in matrix]
         self.__pos = pos
         self.__bot = bot
+        ROWLEN = rowlen
+        COLLEN = collen
         
     # inner moves of chessman
     def _top(self, row, col):
@@ -1181,12 +1172,6 @@ class PlayerChessman:
         return list1
 
     def _bishop(self, row, col):
-        q = mp.Queue()
-        # for multiprocessing
-        rt = mp.Process(target=_worker, args=((self._rightTop, (row, col), q)))
-        lt = mp.Process(target=_worker, args=((self._leftTop, (row, col), q)))
-        rb = mp.Process(target=_worker, args=((self._rightBottom, (row, col), q)))
-        lb = mp.Process(target=_worker, args=((self._leftBottom, (row, col), q)))
         list1 = []
         if col == 0:
             if row == 0:
@@ -1198,16 +1183,7 @@ class PlayerChessman:
             else:
                 # right-top[row - i][col + i]
                 # right-bottom[row + i][col + i]
-                processes = [rt, rb]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._rightTop(row, col) + self._rightBottom(row, col)
         elif col == COLLEN - 1:
             if row == 0:
                 # left-bottom[row + i][col - i]
@@ -1218,95 +1194,36 @@ class PlayerChessman:
             else:
                 # left-top[row - i][col - i]
                 # left-bottom[row + i][col - i]
-                processes = [lt, lb]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._leftBottom(row, col) + self._leftTop(row, col)
         else:
             if row == 0:
                 # right-bottom[row + i][col + i]
                 # left-bottom[row + i][col - i]
-                processes = [rb, lb]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._rightBottom(row, col) + self._leftBottom(row, col)
             elif row == ROWLEN - 1:
                 # right-top[row - i][col + i]
                 # left-top[row - i][col - i]
-                processes = [rt, lt]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._rightTop(row, col) + self._leftTop(row, col)
             else:
                 # right-top[row - i][col + i]
                 # right-bottom[row + i][col + i]
                 # left-bottom[row + i][col - i]
                 # left-top[row - i][col - i]
-                processes = [rt, rb, lb, lt]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
-
+                list1 = self._rightTop(row, col) + self._rightBottom(row, col) + self._leftBottom(row, col) + self._leftTop(row, col)
         return list1
 
     def _rook(self, row, col):
-        q = mp.Queue()
-        # for multiprocessing
-        t = mp.Process(target=_worker, args=((self._top, (row, col), q)))
-        r = mp.Process(target=_worker, args=((self._right, (row, col), q)))
-        b = mp.Process(target=_worker, args=((self._bottom, (row, col), q)))
-        l = mp.Process(target=_worker, args=((self._left, (row, col), q)))
         list1 = []
         # top[row - 1][col]
         # right[row][col + 1]
         # bottom[row + 1][col]
         # left[row][col - 1]
-        processes = [t, r, b, l]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
-        for _ in processes:
-            list1.extend(q.get())
+        list1 = self._top(row, col) + self._right(row, col) + self._bottom(row, col) + self._left(row, col)
         return list1
 
     def _queen(self, row, col):
-        q = mp.Queue()
-        # for multiprocessing
-        bishop = mp.Process(target=_worker, args=((self._bishop, (row, col), q)))
-        rook = mp.Process(target=_worker, args=((self._rook, (row, col), q)))
         list1 = []
-        processes = [bishop, rook]
-        for p in processes:
-            p.start()
-        for p in processes:
-            p.join()
-        for _ in processes:
-            list1.extend(q.get())
+        list1 = self._bishop(row, col) + self._rook(row, col)
         return list1
 
     def _king(self, row, col):
@@ -1335,10 +1252,13 @@ class PlayerChessman:
 
 class BotChessman:
     # constructor
-    def __init__(self, matrix, pos, player):
+    def __init__(self, matrix, pos, player, rowlen, collen):
+        global ROWLEN, COLLEN
         self.__matrix = [row[:] for row in matrix]
         self.__pos = pos
         self.__player = player
+        ROWLEN = rowlen
+        COLLEN = collen
     
     # inner moves of chessman
     def _top(self, row, col):
@@ -2431,7 +2351,6 @@ class BotChessman:
             elif enemy[0] == row+2 and enemy[1] == col+2:
                 return [8]
     
-    
     # gives the result as iterable when the class is been created as an object
     def __iter__(self):
         row, col = self.__pos
@@ -2490,12 +2409,6 @@ class BotChessman:
         return list1
     
     def _bishop(self, row, col):
-        q = mp.Queue()
-        # for multiprocessing
-        rt = mp.Process(target=_worker, args=((self._rightTop, (row, col), q)))
-        lt = mp.Process(target=_worker, args=((self._leftTop, (row, col), q)))
-        rb = mp.Process(target=_worker, args=((self._rightBottom, (row, col), q)))
-        lb = mp.Process(target=_worker, args=((self._leftBottom, (row, col), q)))
         list1 = []
         if col == 0:
             if row == 0:
@@ -2507,16 +2420,7 @@ class BotChessman:
             else:
                 # right-top[row - i][col + i]
                 # right-bottom[row + i][col + i]
-                processes = [rt, rb]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._rightBottom(row, col) + self._rightTop(row, col)
         elif col == COLLEN - 1:
             if row == 0:
                 # left-bottom[row + i][col - i]
@@ -2527,106 +2431,36 @@ class BotChessman:
             else:
                 # left-top[row - i][col - i]
                 # left-bottom[row + i][col - i]
-                processes = [lt, lb]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._leftTop(row, col) + self._leftBottom(row, col)
         else:
             if row == 0:
                 # right-bottom[row + i][col + i]
                 # left-bottom[row + i][col - i]
-                processes = [rb, lb]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._rightBottom(row, col) + self._leftBottom(row, col)
             elif row == ROWLEN - 1:
                 # right-top[row - i][col + i]
                 # left-top[row - i][col - i]
-                processes = [rt, lt]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 = self._rightTop(row, col) + self._leftTop(row, col)
             else:
                 # right-top[row - i][col + i]
                 # right-bottom[row + i][col + i]
                 # left-bottom[row + i][col - i]
                 # left-top[row - i][col - i]
-                processes = [rt, rb, lt, lb]
-                
-                for p in processes:
-                    p.start()
-                
-                for p in processes:
-                    p.join()
-                
-                for _ in processes:
-                    list1.extend(q.get())
+                list1 =  self._rightTop(row, col) + self._rightBottom(row, col) + self._leftBottom(row, col) + self._leftTop(row, col)
         return list1
     
     def _rook(self, row, col):
-        q = mp.Queue()
-        # for multiprocessing
-        t = mp.Process(target=_worker, args=((self._top, (row, col), q)))
-        r = mp.Process(target=_worker, args=((self._right, (row, col), q)))
-        b = mp.Process(target=_worker, args=((self._bottom, (row, col), q)))
-        l = mp.Process(target=_worker, args=((self._left, (row, col), q)))
-        
         list1 = []
-
         # top[row - 1][col]
         # right[row][col + 1]
         # bottom[row + 1][col]
         # left[row][col - 1]
-        processes = [t, r, b, l]
-                
-        for p in processes:
-            p.start()
-                
-        for p in processes:
-            p.join()
-                
-        for _ in processes:
-            list1.extend(q.get())
-        
+        list1 = self._top(row, col) + self._right(row, col) + self._bottom(row, col) + self._left(row, col)
         return list1
         
     def _queen(self, row, col):
-        q = mp.Queue()
-        # for multiprocessing
-        bishop = mp.Process(target=_worker, args=((self._bishop, (row, col), q)))
-        rook = mp.Process(target=_worker, args=((self._rook, (row, col), q)))
-        
         list1 = []
-        
-        processes = [bishop, rook]
-        
-        for p in processes:
-            p.start()
-            
-        for p in processes:
-            p.join()
-        
-        for _ in processes:
-            list1.extend(q.get())
-        
+        list1 = self._bishop(row, col) + self._rook(row, col)
         return list1
 
     def _king(self, row, col):
@@ -2795,50 +2629,3 @@ def canMove(matrix, pos):
         else:
             return False
     return False
-
-
-# if __name__ == "__main__":
-    # print(_oneInteger(2, 3, 4, 5))
-    # print(canMove([
-    #     [4, 2, 3, 5, 6],
-    #     [1, 1, 1, 1, 1],
-    #     [0, 0, 0, 0, 0],
-    #     [0, 0, 0, 0, 0],
-    #     [7, 7, 7, 7, 7],
-    #     [10, 8, 9, 11, 12]
-    # ], [1, 0], [[]]))
-
-    # board = PlayerChessman([
-    #     [3, 5, 6],
-    #     [1, 1, 1],
-    #     [0, 0, 0],
-    #     [0, 0, 0],
-    #     [7, 7, 7],
-    #     [9, 11, 12]
-    # ], [4, 2], [[]])
-    # print(list(board))
-    
-    # print(get_the_postion(7459))
-    # print(get_the_postion(7234))
-    # print(get_the_postion(4084))
-
-    
-    # board = PlayerChessman([
-    #     [3, 0, 0, 4, 2, 12],
-    #     [0, 0, 0, 5, 0, 0],
-    #     [5, 0, 0, 0, 0, 4],
-    #     [0, 0, 0, 12, 0, 3],
-    #     [3, 0, 5, 0, 1, 0],
-    #     [5, 5, 0, 3, 0, 3]
-    # ], [0, 5],
-    # [[[1, 3], 5]])
-    # print(list(board))
-    # print("[",
-    #     [0, 1, 0, 0, 0, 0],"\n",
-    #     [1, 4, 0, 1, 0, 0],"\n",
-    #     [4, 6, 6, 0, 0, 4],"\n",
-    #     [0, 0, 0, 12, 0, 0],"\n",
-    #     [0, 0, 0, 6, 0, 0],"\n",
-    #     [6, 0, 6, 0, 4, 0],"\n",
-    # "]")
-    # print(3,3)
