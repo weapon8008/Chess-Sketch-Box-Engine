@@ -105,6 +105,33 @@ export default class Board extends MatrixOperation {
         }
     }
 
+    /**
+     * **Show the moves possible**
+     * -------------------------
+     * - Calculate the number of moves possible by the desired **chessman** of the current chessboard.
+     * - The chessman is ```matrix[row][col]```
+     * 
+     * @param {number} row
+     * This is the chessman ```row``` postion
+     * 
+     * -
+     * @param {number} col
+     * This is the chessman ```col``` postion
+     * 
+     * -
+     * 
+     * --- 
+     * 
+     * These are the number of moves the desired chessman can move.
+     * @returns {number[][]} 
+     * ```
+     * [[new_row_1, new_col_1], [new_row2, new_col_2], ..., [new_row_n, new_col_n]]
+     * ```
+     * If there is no move possible it will return
+     * ```
+     * [null]
+     * ```  
+    */
     showMoves(row, col) {
         if (row < 0 || row >= this.boardData.row || col < 0 || col >= this.boardData.col) {
             throw new Error("Invalid position")
