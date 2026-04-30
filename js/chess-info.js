@@ -1,4 +1,4 @@
-export default function chessmen(matrix) {
+export function chessmen(matrix) {
     let bot = []
     let player = []
     for (let i = 0; i < matrix.length; i++) {
@@ -9,5 +9,19 @@ export default function chessmen(matrix) {
                 player.push([[i, j], matrix[i][j]])
         }
     }    
+    return [bot, player]
+}
+
+export function kingPos(bot, player) {
+    for (let i = 0; i < bot.length; i++) {
+        if (bot[i][1] === 6) {
+            bot = bot[i][0]
+        }
+    }
+    for (let i = 0; i < player.length; i++) {
+        if (player[i][1] === 12) {
+            player = player[i][0]
+        }
+    }
     return [bot, player]
 }

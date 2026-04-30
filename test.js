@@ -1,12 +1,12 @@
 import Board from "./index.js"
 
 const board = new Board([
-    [3, 5, 6],
-    [1, 1, 1],
-    [0, 0, 0],
-    [0, 0, 0],
-    [7, 7, 7],
-    [9, 11, 12]
+    [4, 2, 3, 5, 6],
+    [1, 1, 1, 1, 1],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [7, 7, 7, 7, 7],
+    [10, 8, 9, 11, 12]
 ], "b")
 console.log("In testing")
 // console.log(board)
@@ -14,6 +14,7 @@ console.log("In testing")
 // await changeMoves(0, 1, 3, 2)
 // console.log(board)
 import readline from "readline"
+import { BotChessman } from "./js/chessman.js"
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -42,11 +43,17 @@ while (loop) {
             let new_col = await ask("Enter next col number: ")
             if ((board.boardData.matrix[Number(old_row)][Number(old_col)] === 1 && Number(new_row) === board.boardData.row - 1) || (board.boardData.matrix[Number(old_row)][Number(old_col)] === 7 && Number(new_row) === 0)) {
                 let changeChessman = await ask("Enter new number for the chessman to change to: ")
-                await board.playMove(Number(old_row), Number(old_col), Number(new_row), Number(new_col), Number(changeChessman))
+                board.playMove(Number(old_row), Number(old_col), Number(new_row), Number(new_col), Number(changeChessman))
             } else {
-                await board.playMove(Number(old_row), Number(old_col), Number(new_row), Number(new_col))
+                board.playMove(Number(old_row), Number(old_col), Number(new_row), Number(new_col))
             }
+            let [botCheck, playerCheck] = await board.check()
             console.log("Play move")
+            console.log(botCheck, playerCheck)
+            if (botCheck) 
+                console.log("Bot King Check")
+            if (playerCheck)
+                console.log("Player King Check")
         case "1":
             console.log(board.boardData)
             break

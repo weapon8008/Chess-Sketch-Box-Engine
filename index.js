@@ -1,11 +1,32 @@
-import fs from "fs"
-import path from "path"
-import { fileURLToPath } from "url"
-import { spawn } from "child_process"
-import chessmen from "./js/chess-info.js"
-
+import { chessmen, kingPos } from "./js/chess-info.js"
+import { PlayerChessman, BotChessman, canMove } from "./js/chessman.js"
 
 class MatrixOperation {
+    /**
+     * **Get the board data**
+     * --------------------
+     * 
+     * The board data is divided as:
+     * ```
+     * boardData = {
+            "rowlen": matrix.length,
+            "collen": matrix[0].length,
+            "matrix": matrix,
+            "bot": bot,
+            "player": player
+        }
+     * ``` 
+     * 
+     * ---
+     * 
+     * **Chessboard Data** (above)
+     * ----------
+     * - `rowlen` is the metrix's row length
+     * - `collen` is the metrix's column length
+     * - `metrix` is the metrix
+     * - `bot` is the BOT chessmen `[value, [pos_row, pos_col]]`
+     * - `player` is the PLAYER chessmen `[value, [pos_row, pos_col]]`
+     */
     boardData = undefined
 
     // check matrix is valid 2D array
@@ -77,8 +98,8 @@ class MatrixOperation {
     _initiateBoardData(matrix) {
         const [bot, player] = chessmen(matrix)
         this.boardData = {
-            "row": matrix.length,
-            "col": matrix[0].length,
+            "rowlen": matrix.length,
+            "collen": matrix[0].length,
             "matrix": matrix,
             "bot": bot,
             "player": player
@@ -87,23 +108,75 @@ class MatrixOperation {
 }
 
 export default class Board extends MatrixOperation {
-    constructor(matrix, playerColor) {
+    /**
+    * **Start your custom chess board**
+    * ---------------------------------
+    * 
+    * **Here**: The matrix is a **n × m** matrix  
+    * - **n** (columns) > 1  
+    * - **m** (rows) > 1 
+    * 
+    * ---
+    *
+    * @param {number[][]} matrix
+    * ```
+    * [
+    *   [A00, A01, ..., A0n],
+    *   [A10, A11, ..., A1n],
+    *   [..., ..., ..., ...],
+    *   [Am0, Am1, ..., Amn]
+    * ]
+    * ```
+    *
+    * **Number in the matrix values**:
+    * 
+    * - **0** - Empty box or no chessman
+    * ```Bot```
+    * - **1** - Bot Pawn
+    * - **2** - Bot Knight
+    * - **3** - Bot Bishop
+    * - **4** - Bot Rook
+    * - **5** - Bot Queen
+    * - **6** - Bot King
+    * ```Player```
+    * - **7** - Player Pawn
+    * - **8** - Player Knight
+    * - **9** - Player Bishop
+    * - **10** - Player Rook
+    * - **11** - Player Queen
+    * - **12** - Player King
+    *  
+    * ---
+    * 
+    * **Steps it follows**
+    * --------------
+    * - Check matrix is valid 2D array
+    * - Check numbers inside the matrix ```[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]```
+    * - Initiate the chess ```boardData```
+    * 
+    * ---
+    * 
+    * **How to use ?**
+    * --------------
+    * - **Step1**: create object(obj) = new Board(```matrix```, ```playerColor```)
+    * - **Step2**: Then use its variables and methods - `obj`.```boardData```, `obj`.```showMoves(row, col)``` and `obj`.```playeMoves(old_row, old_col, new_row, new_col, changeChessman)```
+    */
+    constructor(matrix) {
         super()
 
         this._checkDimention(matrix)
         this._checkMatrix(matrix)
         this._initiateBoardData(matrix)
 
+        let pos = kingPos(this.boardData.bot, this.boardData.player)
+        this.#botKing = pos[0]
+        this.#playerKing = pos[1]
+
         startPrediction()
-
-        if (playerColor === "b" || playerColor === "B") {
-
-        } else if (playerColor === "w" || playerColor === "W") {
-
-        } else {
-            throw new Error(`${playerColor} is invalid\nValid playerSide:\n\tfor black -> \'B\' or \'b\'\n\tfor white -> \'W\' or \'w\'`)
-        }
     }
+
+    #botKing
+    #playerKing
 
     /**
      * **Show the moves possible**
@@ -133,73 +206,58 @@ export default class Board extends MatrixOperation {
      * ```  
     */
     showMoves(row, col) {
-        if (row < 0 || row >= this.boardData.row || col < 0 || col >= this.boardData.col) {
-            throw new Error("Invalid position")
+        if (!canMove(this.boardData.matrix, [row, col], this.boardData.rowlen, this.boardData.collen)) {
+            return []
+        } else {
+            if (this.boardData.matrix[row][col] <= 12 && this.boardData.matrix[row][col] > 6) {
+                return [...new PlayerChessman(this.boardData.matrix, [row, col], this.boardData.bot, this.boardData.rowlen, this.boardData.collen)]
+            } else if (this.boardData.matrix[row][col] <= 6 && this.boardData.matrix[row][col] > 0) {
+                return [...new BotChessman(this.boardData.matrix, [row, col], this.boardData.player, this.boardData.rowlen, this.boardData.collen)]
+            }
         }
-
-        if (this.boardData.matrix[row][col] === 0) {
-            return null
-        }
-
-        let n = Math.max(this.boardData.row, this.boardData.col)
-
-        return new Promise((resolve, reject) => {
-            const py = spawn("python3", [
-                path.join(
-                    path.dirname(fileURLToPath(import.meta.url)),
-                    "python",
-                    "show-move.py"
-                )
-            ])
-
-            let dataString = ""
-            let errorString = ""
-
-            py.stdin.write(JSON.stringify({
-                row,
-                col,
-                boardData: this.boardData
-            }))
-
-            py.stdin.end()
-
-            py.stdout.on("data", (data) => {
-                dataString += data.toString()
-            })
-
-            py.stderr.on("data", (err) => {
-                errorString += err.toString()
-            })
-
-            py.on("close", (code) => {
-                if (code !== 0) {
-                    return reject(errorString || "Python process failed")
-                }
-
-                try {
-                    const parsed = JSON.parse(dataString.trim())
-
-                    const result = parsed.map(item => [
-                        Math.floor(item[1] / (n * n)) % n,
-                        Math.floor(item[1] / (n * n * n))
-                    ])
-
-                    resolve(result)
-                } catch (err) {
-                    reject("Invalid JSON from Python")
-                }
-            })
-        })
     }
 
-    async playMove(old_row, old_col, new_row, new_col, changeChessman = -1) {
-        const list = await this.showMoves(old_row, old_col)
+    /**
+     * **Play the chessman move**
+     * -------------------------
+     * - Check whether the desired **chessman** can move in the current chessboard.
+     * - Move the **chessman** to new position ```matrix[new_row_1][new_col_1]```
+     * - Change the chessman value, if it is `1` or `7`(pawn); which reaches to its opponent's extreme place.   
+     * 
+     * @param {number} old_row
+     * This is the chessman ```old_row``` postion
+     * 
+     * -
+     * @param {number} old_col
+     * This is the chessman ```old_col``` postion
+     * 
+     * -
+     * @param {number} new_row
+     * This is the chessman ```new_row``` postion
+     * 
+     * -
+     * @param {number} new_col
+     * This is the chessman ```new_col``` postion
+     * 
+     * -
+     * @param {number} changeChessman
+     * If it needs to changeChessman then only give the chessman value
+     * ```
+     * default changeChessman = -1
+     * 
+     * if (matrix[new_row][new_col] == 1 and new_row == rowlen - 1) 
+     *      changeChessman = 5 or 4 or 3 or 2
+     * else if (matrix[new_row][new_col] == 7 and new_row == 0) 
+     *      changeChessman = 11 or 10 or 9 or 8
+     * ```
+    */
+    playMove(old_row, old_col, new_row, new_col, changeChessman = -1) {
+        const list = this.showMoves(old_row, old_col)
 
         // throws error when the chessman is 0 or donot have any moves
-        if (list.length == 0) {
+        if (list.length === 0) {
             return
         }
-
         // check the chessman have valid moves
         if (list.some(([row, col]) => row === new_row && col === new_col)) {
             let matrix = this.boardData.matrix
@@ -263,9 +321,38 @@ export default class Board extends MatrixOperation {
                 matrix[new_row][new_col] = matrix[old_row][old_col]
                 matrix[old_row][old_col] = 0
             }
-        } else {
-            throw new Error(`row = ${new_row}\tcol = ${new_col}:\nThis chessman is not valid placement for this chessman`)
         }
+    }
+
+    /**
+     * **Look after the check**
+     * --------------------
+     * 
+     * This checks that the king of either side is having any check or not.
+     * 
+     * @returns {boolean[]} 
+     * ```
+     * [bot, player]
+     * ```
+     * 
+     */
+    check() {
+        let bot, player
+        for (let i = 0; i < this.boardData.bot.length; i++) {
+            const list = this.showMoves(this.boardData.bot[i][0][0], this.boardData.bot[i][0][1])
+            if (list.some(([r, c]) => r === this.#playerKing[0] && c === this.#playerKing[1])){
+                player = true
+                break
+            }
+        }
+        for (let i = 0; i < this.boardData.player.length; i++) {
+            const list = this.showMoves(this.boardData.player[i][0][0], this.boardData.player[i][0][1])
+            if (list.some(([r, c]) => r === this.#botKing[0] && c === this.#botKing[1])){
+                bot = true
+                break
+            }
+        }
+        return [bot, player]
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "chess-sketch-box-engine",
-  "version": "1.1.0",
+  "version": "2.1.0",
   "description": "Custom NxM chess engine for developers",
   "main": "index.js",
   "keywords": ["chess", "engine", "nxm", "board"],
